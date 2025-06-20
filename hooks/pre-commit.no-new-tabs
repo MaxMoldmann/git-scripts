@@ -1,0 +1,28 @@
+#!/bin/sh
+
+# Reject any commit that would add a line with tabs.
+#
+
+#-----------------------------------------------------------------------------
+# Tab check
+# Don't allow newly inserted tabs in files of type pm,c,h,ct,ht
+# Source: http://stackoverflow.com/questions/3985463/prevent-pushes-to-git-containing-tabs-in-certain-files-e-g-cpp-h-cmakeli
+# NOTE: Pattern file must end with a newline and must be in UNIX format (no CR/LF at EOL)!
+git diff --cached --name-only | grep "\.\(pm\|c\|h\|ct\|ht\)$" | xargs git diff -U0 --cached -- | grep -q --file=.git/hooks/grep.pattern && {
+    echo.;
+    echo "ERROR: Newly inserted Tab detected:";
+    echo.;
+    echo "File list:";
+    filelist=$(git diff --name-only --cached | grep "\.\(pm\|c\|h\|ct\|ht\)$")
+    for f in $filelist
+    do
+        echo $f
+        git diff -U0 --cached -- $f | grep -n --file=.git/hooks/grep.pattern
+    done
+    echo.;
+    echo "In order to ease diff & merge operations inserting tabs in source files";
+    echo "is not allowed!";
+    exit 1
+}
+
+exit 0

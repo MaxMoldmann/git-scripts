@@ -1,0 +1,171 @@
+#!/bin/sh
+#
+# http://stackoverflow.com/questions/5482887/how-to-avoid-merge-branch-master-of-ssh-gdcm-git-sourceforge-net-gitroot-gdcread
+#
+# Called by "git receive-pack" with arguments: refname sha1-old sha1-new
+#
+# To enable this hook, rename this file to "update".
+#
+# - No Tabs - Don't allow newly inserted tabs in files of type pm,c,h,ct,ht,xml
+# - Linear history - Don't allow non linear history introduced by merge commits
+# - Commit subject length - Don't allow long commit subject lines > 120 characters
+# - Commit subject module - Line must begin with module name followed by ":"
+#
+
+# --- Command line
+ref=$1
+rev_old=$2
+rev_new=$3
+
+echo "[update] Start of Update hook script ..."
+echo.
+
+#-----------------------------------------------------------------------------
+# Safety check
+if [ -z "$GIT_DIR" ]; then
+    echo "Don't run this script from the command line." >&2
+    echo " (if you want, you could supply GIT_DIR then run" >&2
+    echo "  $0 <ref> <oldrev> <newrev>)" >&2
+    exit 1
+fi
+
+if [ -z "$ref" -o -z "$rev_old" -o -z "$rev_new" ]; then
+    echo "usage: $0 <ref> <oldrev> <newrev>" >&2
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
+# Tab check
+# Don't allow newly inserted tabs in files of type pm,c,h,ct,ht,xml
+# Source: http://stackoverflow.com/questions/3985463/prevent-pushes-to-git-containing-tabs-in-certain-files-e-g-cpp-h-cmakeli
+git diff --name-only $rev_old $rev_new | grep "\.\(pm\|c\|h\|ct\|ht\|xml\)$" | xargs git diff -U0 $rev_old $rev_new -- | grep -q --file=hooks/grep.pattern && {
+    echo.;
+    echo "ERROR: Newly inserted Tab detected:";
+    echo.;
+    echo "File list:";
+    filelist=$(git diff --name-only $rev_old $rev_new | grep "\.\(pm\|c\|h\|ct\|ht\|xml\)$")
+    for f in $filelist
+    do
+        echo $f
+        git diff -U0 $rev_old $rev_new -- $f | grep -n --file=hooks/grep.pattern
+    done
+    echo.;
+    echo "In order to ease diff & merge operations inserting tabs in source files";
+    echo "is not allowed!";
+    exit 1
+}
+
+#-----------------------------------------------------------------------------
+# Interpret change type and get revision types
+# 0000->1234 (create)
+# 1234->2345 (update)
+# 2345->0000 (delete)
+if expr "$rev_old" : '0*$' >/dev/null
+then
+    change_type="create"
+else
+    if expr "$rev_new" : '0*$' >/dev/null
+    then
+        change_type="delete"
+    else
+        change_type="update"
+    fi
+fi
+
+# --- Get the revision types
+newrev_type=$(git cat-file -t $rev_new 2> /dev/null)
+oldrev_type=$(git cat-file -t "$rev_old" 2> /dev/null)
+case "$change_type" in
+    create|update)
+        rev="$rev_new"
+        rev_type="$rev_new_type"
+        ;;
+    delete)
+        rev="$rev_old"
+        rev_type="$rev_old_type"
+        ;;
+esac
+
+# The revision type tells us what type the commit is, combined with
+# the location of the ref we can decide between
+#  - working branch
+#  - tracking branch
+#  - unannoted tag
+#  - annotated tag
+
+case "$refname","$rev_type" in
+    refs/*,commit)
+
+        #-----------------------------------------------------------------------------
+        # check for non linear history introduced by merge commits
+        if [ "$ref" = refs/heads/master ]; then
+            merge_commit=$(git rev-list -n 1 --merges $rev_old..$rev_new)
+            merge_commit_info=$(git log --abbrev-commit --pretty=oneline -1 $merge_commit)
+            if [ -n "$merge_commit" ]; then
+                echo.;
+                echo "WARNING: Merge commit detected:";
+                echo "    $merge_commit_info";
+                echo.;
+                echo "In order to preserve a linear history it is not allowed";
+                echo "to push merge commits on the master branch!";
+
+                # Allows us to read user input below, assigns stdin to keyboard
+                exec < /dev/tty
+
+                while true; do
+                    read -p "Override and commit anyways? (y/N) " yn
+                    if [ "$yn" = "" ]; then
+                        yn='N'
+                    fi
+                    case $yn in
+                        [Yy]) break;;
+                        [Nn]) exit 1;;
+                        *)    echo "Please answer y or n for yes or no.";;
+                    esac
+                done
+
+                echo.;
+            fi
+        fi
+
+        #-----------------------------------------------------------------------------
+        # check for too long commit subject lines
+        commit_subject=$(git log -1 --pretty=%s $rev_old..$rev_new)
+        too_long=$(echo $commit_subject | grep -E .{121})
+        if [ "$too_long" ]; then
+            echo.;
+            echo "ERROR: Commit subject over 120 characters:";
+            echo "    $commit_subject";
+            echo.;
+            echo "Reduce the length of the 1st line of your commit message.";
+            echo "Add additional information into line 3 and following and push again!";
+            echo.;
+            exit 1
+        fi
+
+        #-----------------------------------------------------------------------------
+        # check for commit subject lines not beginning with module name
+        commit_subject=$(git log -1 --pretty=%s $rev_old..$rev_new)
+        module_name=$(echo $commit_subject | grep -e '^.*: \w')
+        merge_commit=$(echo $commit_subject | grep -e '^Merge \w');
+        if [[ !($module_name || $merge_commit) ]]; then
+            echo.;
+            echo "ERROR: Commit subject must begin with \"ModuleName: \":";
+            echo "    $commit_subject";
+            echo.;
+            echo "Change the 1st line of your commit message and push again!";
+            echo.;
+            exit 1
+        fi
+
+        ;;
+
+    *)
+        # Anything else (is there anything else?)
+        #echo "$0: Unknown type of update to $refname ($rev_type)"
+        ;;
+esac
+ 
+ 
+# --- Finished
+exit 0

@@ -1,0 +1,167 @@
+#!/bin/sh
+
+#
+# For each ref, validate the commit.
+#
+# - It disallows commits from unknown user.
+# - It warns about changes inside the .settings folder.
+# - It disallows non fast-forward on branches without a /.
+
+if [ -e "./hooks/REPO_CLOSED" ]; then
+    echo " ";   
+    echo " ";   
+    echo "   XXXX  XXXXX     XXX    XXXXX  XXXXXXX XXXXX   ";
+    echo "  X    X   X      X   X  X     X  X    X  X   X  ";
+    echo " X         X     X     X X        X       X    X ";
+    echo " X         X     X     X X        X  X    X    X ";
+    echo " X         X     X     X  XXXXX   XXXX    X    X ";
+    echo " X         X     X     X       X  X  X    X    X ";
+    echo " X         X     X     X       X  X       X    X ";
+    echo "  X    X   X   X  X   X  X     X  X    X  X   X  ";
+    echo "   XXXX  XXXXXXX   XXX    XXXXX  XXXXXXX XXXXX   ";
+    echo " ";   
+    echo "This Repo is closed for all pushes, we will";
+    echo "send a mail to all known git users        ";
+    echo "when pushes are allowed again              ";
+    echo " ";   
+    echo " ";   
+    exit 1
+fi
+
+echo >&2 "[pre-receive] Start of Pre-Receive hook script ..."
+echo >&2 ""
+
+validate_ref()
+{
+	# --- Arguments
+	oldrev=$(git rev-parse $1)
+	newrev=$(git rev-parse $2)
+	refname="$3"
+
+	#allownonffpush=$( git config --bool hooks.allownonffpush )
+	allownonffpush="false"
+	# oldrev could be 0s which means creating refname
+	# newrev could be 0s which means deleting refname
+
+	case "$refname" in
+		refs/heads/*)
+			branch=$(expr "$refname" : "refs/heads/\(.*\)")
+			topicbranch=$(expr "$branch" : "\(.*/.*\)")
+			topicuser=$(expr "$branch" : "\(.*\)/.*")
+			if [ 0 -ne $(expr "$newrev" : "0*$") ]; then # deleting
+				return # Don't need to validate old revision
+			else #updating
+                if [ 0 -ne $(expr "$oldrev" : "0*$") ]; then # pushing a new branch
+                    return # it's not a FF merge
+				fi
+				if [ $oldrev != $(git merge-base $oldrev $newrev) ]; then # non fast-forward
+					# only topic branches can be non fast-forwarded
+					if [ "$allownonffpush" != "true" -a -z "$topicbranch" ]; then
+						fail=1
+						echo >&2 "ERROR: Non fast-forward of branch $branch is not permitted!"
+						echo >&2 ""
+						return
+					fi
+                fi
+			fi
+			;;
+		refs/tags/*)
+		    #tag=$(expr "$refname" : "refs/tags/\(.*\)")
+			;;
+		*)
+			fail=1
+			echo >&2 "*** pre-receive hook does not understand ref $refname in this repository. ***"
+			echo >&2 "*** Contact the repository administrator. ***"
+			;;
+	esac
+    
+    
+    # Check for modified files in .settings folder
+    #### Loop over modified files
+    ###for FILE in `git diff --name-only ${oldrev}..${newrev} -- | grep '^\.settings/'`; do
+    ###done
+    settings_modified=$(git diff --name-only $oldrev..$newrev -- | grep '^\.settings/')
+    if [ "$settings_modified" ]; then
+        # Later notify user of problem
+        problem=1
+        commit_subject=$(git log -1 --pretty=%s $oldrev..$newrev)
+        problem_msg="WARNING: Commit would make changes to the settings folder:\n"
+        problem_msg+="\t \"$commit_subject\"\n"
+        problem_msg+="\n"
+        problem_msg+="$settings_modified\n"
+        problem_msg+="\n"
+        problem_msg+="Normally the files in the .settings folder shall not be modified!\n"
+        problem_msg+="\n"
+    fi
+    
+    # Check for commit from unknown user
+    unknown_user=$(git log --pretty=format:"SHA1: %h   Author: %an <%ae>%n" $oldrev..$newrev | grep -E "Author: unknown <|Author: Firstname Lastname <")
+    if [ "$unknown_user" ]; then
+        echo >&2 "ERROR: Commit author full name is missing:";
+        echo >&2 ""
+        echo >&2 "$unknown_user";
+        echo >&2 ""
+        echo >&2 "You are trying to push a commit without a configured full name.";
+        echo >&2 "Run: <git.exe config --global user.name \"Firstname Lastname\"> and push again!";
+        echo >&2 ""
+        fail=1
+    fi
+    
+    # Check for empty 2nd line in Commit message
+    #msg=$(git cat-file commit $newrev | grep -E -c "^committer.+\n\n.+\n.+\n")
+    #if [ "$unknown_user" ]; then
+    #    echo >&2 "ERROR: Commit author full name is missing:";
+    #    echo >&2 ""
+    #    echo >&2 "$unknown_user";
+    #    echo >&2 ""
+    #    echo >&2 "You are trying to push a commit without a configured full name.";
+    #    echo >&2 "Run: <git.exe config --global user.name \"Firstname Lastname\"> and push again!";
+    #    echo >&2 ""
+    #    fail=1
+    #fi
+}
+
+fail=""
+
+# Allow dual mode: run from the command line just like the update hook, or
+# if no arguments are given then run as a hook script
+if [ -n "$1" -a -n "$2" -a -n "$3" ]; then
+	# Output to the terminal in command line mode - if someone wanted to
+	# resend an email; they could redirect the output to sendmail
+	# themselves
+	PAGER= validate_ref $2 $3 $1
+else
+	while read oldrev newrev refname
+	do
+		validate_ref $oldrev $newrev $refname
+	done
+fi
+
+if [ -n "$problem" ]; then
+    echo -e >&2 $problem_msg
+
+    # Allows us to read user input below, assigns stdin to keyboard
+    exec < /dev/tty
+
+    wait=1
+    while [ -n "$wait" ]; do
+        read -p "Override and commit anyways? (y/N) " yn
+        if [ "$yn" = "" ]; then
+            yn='N'
+        fi
+        case $yn in
+            [Yy]) wait=""; break;;
+            [Nn]) wait=""; fail=1;;
+            *)    echo >&2 "Please answer y or n for yes or no.";;
+        esac
+    done
+    
+    echo >&2 ""
+fi
+
+if [ -n "$fail" ]; then
+	exit $fail
+fi
+
+echo Always abort
+exit 1

@@ -1,0 +1,47 @@
+; List all the Repositories here for backup by Rsync (called by git_auto_backup.cmd)
+; Rsync can be used to backup regular Git repos and Repos with a seperate Git folder.
+; See LinkedIn article about seperate Git folders: 
+; (https://www.linkedin.com/posts/max-moldmann_ever-wished-the-git-repository-would-be-stored-activity-7294871518700781569-ZB9v)
+
+; NOTES:
+; git-auto-backup.cmd and Rsync use a base directory from which repositories are being referenced. 
+; Below folders are all relative to a base backup folder e.g.: c:\workspace
+; If you want to include other git repos into the backup you can create a NTFS Junction to 
+; another folder outside the workspace folder using the LinkShellExtension 
+; (https://schinagl.priv.at/nt/hardlinkshellext/linkshellextension.html)
+; E.g. c:\workspace\Scripts could be Junction to c:\Scripts in order to include the Scripts and 
+; its git folder in the repo backup
+
+- *.bak~
+- *.tmp
++ /projects/
+
+; Repo within source folder
++ /Scripts/
++ /Scripts/.git/
+; Backup .gitignore and .gitattributes
++ /Scripts/.git*
+- /Scripts/*
+
+; Repo within source folder
++ /projects/SharedTools/
++ /projects/SharedTools/scripts/
++ /projects/SharedTools/scripts/.git/
+; Backup .gitignore and .gitattributes
++ /projects/SharedTools/scripts/.git*
+- /projects/SharedTools/scripts/*
+- /projects/SharedTools/*
+
+; Repo with separate git folder
++ /projects/ICE/
++ /projects/ICE/src/
++ /projects/ICE/ICE.git/
+; Backup .gitignore and .gitattributes
++ /projects/ICE/src/.git*
+- /projects/ICE/src/*
+- /projects/ICE/*
+
+- /projects/*
+- /projects/*/*
+- /projects/
+- /*

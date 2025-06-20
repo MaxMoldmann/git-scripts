@@ -1,0 +1,85 @@
+#!/bin/sh
+#
+# An example hook script to prepare a packed repository for use over
+# dumb transports.
+#
+# To enable this hook, rename this file to "post-receive.
+
+while read oldrev newrev refname
+do
+    oldrev=$(git rev-parse $oldrev)
+    newrev=$(git rev-parse $newrev)
+
+    #echo $0: refname=$refname oldrev=$oldrev newrev=$newrev
+
+    # --- Interpret
+    # 0000->1234 (create)
+    # 1234->2345 (update)
+    # 2345->0000 (delete)
+    if expr "$oldrev" : '0*$' >/dev/null
+    then
+        change_type="create"
+    else
+        if expr "$newrev" : '0*$' >/dev/null
+        then
+            change_type="delete"
+        else
+            change_type="update"
+        fi
+    fi
+
+    # --- Get the revision types
+    newrev_type=$(git cat-file -t $newrev 2> /dev/null)
+    oldrev_type=$(git cat-file -t "$oldrev" 2> /dev/null)
+    case "$change_type" in
+        create|update)
+            rev="$newrev"
+            rev_type="$newrev_type"
+            ;;
+        delete)
+            rev="$oldrev"
+            rev_type="$oldrev_type"
+            ;;
+    esac
+
+    # The revision type tells us what type the commit is, combined with
+    # the location of the ref we can decide between
+    #  - working branch
+    #  - tracking branch
+    #  - unannoted tag
+    #  - annotated tag
+    case "$refname","$rev_type" in
+        refs/tags/*,commit)
+            # un-annotated tag
+            refname_type="tag"
+            short_refname=${refname##refs/tags/}
+            #echo "$0: Update $refname_type: $short_refname"
+            echo "$0: Automatic 'git gc' background run triggered by tag receive..."
+            git gc > /dev/null 2>&1 &
+            ;;
+        refs/tags/*,tag)
+            # annotated tag
+            refname_type="annotated tag"
+            short_refname=${refname##refs/tags/}
+            #echo "$0: Update $refname_type: $short_refname"
+            echo "$0: Automatic 'git gc' background run triggered by tag receive..."
+            git gc > /dev/null 2>&1 &
+            ;;
+        refs/heads/*,commit)
+            # branch
+            refname_type="branch"
+            short_refname=${refname##refs/heads/}
+            #echo "$0: Update $refname_type: $short_refname"
+            ;;
+        refs/remotes/*,commit)
+            # tracking branch
+            refname_type="tracking branch"
+            short_refname=${refname##refs/remotes/}
+            #echo "$0: Update $refname_type: $short_refname"
+            ;;
+        *)
+            # Anything else (is there anything else?)
+            echo "$0: Unknown type of update to $refname ($rev_type)"
+            ;;
+    esac
+done
