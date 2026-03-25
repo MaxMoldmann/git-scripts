@@ -43,11 +43,17 @@
 # v2.5  MM  2021-06-10  Fix: Linux command output redirect; Suppress git merge-base output
 # v2.6  MM  2025-04-02  Improve the Windows platform detection and default to use the Meld diff tool on Windows
 # v2.7  MM  2025-04-24  Change Windows NULL redirect to avoid creation of a NUL file in the current directory
+# v2.8  MM  2026-03-25  Add gitdiffworktree.cmd shim to avoid Windows command line argument passing problems
 
 use warnings;
 use strict;
+# Display command arguments
+#use Data::Dumper;
+#warn Dumper(\@ARGV);
+# NOTE: To circumvent Windows problems with missing command line arguments use a gitdiffworktree.cmd wrapper script:
+# @perl "%~dp0gitdiffworktree.pl" %* 
 
-my $DEBUG_LEVEL = 0;
+my $DEBUG_LEVEL = 0;  # [-debug] option changes Debug level to 1 
 my $git;
 my $sepDirCmd;
 my $retVal;
@@ -91,10 +97,10 @@ else
 }
 
 # Settings for Windows
-my $DIFF_TOOL_NAME = "meld.exe";
-my $DIFF_TOOL_PATH = "C:/Tools/Meld";
-#my $DIFF_TOOL_NAME = "BCompare.exe";
-#my $DIFF_TOOL_PATH = "C:/Program Files/Beyond Compare 4";
+#my $DIFF_TOOL_NAME = "meld.exe";
+#my $DIFF_TOOL_PATH = "C:/Tools/Meld";
+my $DIFF_TOOL_NAME = "BCompare.exe";
+my $DIFF_TOOL_PATH = "C:/Tools/Beyond Compare 5";
 # Settings for NULL device redirect
 my $TO_NULL = "2>\\\\.\\NUL"; # Use the most explicit NULL device name "\\.\NUL"
 # For Powershell use:
