@@ -44,6 +44,7 @@
 # v2.6  MM  2025-04-02  Improve the Windows platform detection and default to use the Meld diff tool on Windows
 # v2.7  MM  2025-04-24  Change Windows NULL redirect to avoid creation of a NUL file in the current directory
 # v2.8  MM  2026-03-25  Add gitdiffworktree.cmd shim to avoid Windows command line argument passing problems
+# v2.9  MM  2026-05-07  Reuse existing worktree if SHA1 is already checked out there
 
 use warnings;
 use strict;
@@ -69,6 +70,25 @@ my $separateGitDir;
 # Helper functions
 # Trim whitespace on the right
 sub rtrim { my $s = shift; $s =~ s/\s+$//; return $s };
+
+# Returns the worktree path whose HEAD matches $sha1, or undef if not found
+sub find_worktree_for_sha1 {
+    my ($sha1) = @_;
+    my $output = `$git worktree list --porcelain 2>&1`;
+    $output =~ s/\r\n/\n/g;  # normalize Windows CRLF
+    for my $block (split /\n\n/, $output) {
+        if ($block =~ m/^worktree (.+)/m) {
+            my $path = $1;  # capture before second match overwrites $1
+            $path =~ s/\r//g;  # strip any stray CR
+            if ($block =~ m/^HEAD \Q$sha1\E/m) {
+                print "> find_worktree_for_sha1: found $sha1 at $path\n" if ($DEBUG_LEVEL > 0);
+                return $path;
+            }
+        }
+    }
+    print "> find_worktree_for_sha1: $sha1 not found as HEAD of any worktree\n" if ($DEBUG_LEVEL > 0);
+    return undef;
+}
 
 # Wait for user input
 # This is used to pause the script for debugging purposes
@@ -467,13 +487,22 @@ else
   print "Prepare checkout of PRE repository";
   print " at <Ref1> '$pre'" if ($DEBUG_LEVEL > 0);
   print ":\n";
+  # Check if SHA1 is already the HEAD of an existing worktree
+  my $found_pre_wt = find_worktree_for_sha1($pre_sha1);
+  if (defined $found_pre_wt)
+  {
+    print("..Using existing worktree: $found_pre_wt\n");
+    $pre_dir = $found_pre_wt;
+  }
+  else
+  {
   # Check existence of worktree
   if ((not -e "$pre_dir\/.git") && (not -e "$pre_dir\/..\/${self}.git.diff_pre\/"))
   {
     print("\n[INFO] Git worktree is not existing ($pre_dir)!\n" .
           "..Creating new worktree\n");
 
-    $cmd = "$git worktree add --no-checkout -b diff_pre ..//${self}.diff_pre";
+    $cmd = "$git worktree add --no-checkout -B diff_pre ..//${self}.diff_pre";
     print "> $cmd\n" if ($DEBUG_LEVEL > 0);
     # Create worktree
     @cmd_list = `$cmd -- 2>&1`;
@@ -483,6 +512,8 @@ else
   if ((not -e "$pre_dir\/.git") && (not -d "$pre_dir\/..\/${self}.git.diff_pre\/"))
   {
       print @cmd_list if ($DEBUG_LEVEL == 0);
+      print("[ERROR] Failed to create pre worktree at: $pre_dir\n");
+      print("[ERROR] Expected .git at: $pre_dir/.git\n");
       exit(1);
   }
 
@@ -498,6 +529,7 @@ else
   @cmd_list = `$cmd -- | tee 2>&1`;
   print @cmd_list;
   print "\n";
+  } # end else (no existing worktree found for pre)
 }
 
 #
@@ -513,13 +545,22 @@ else
   print "Prepare checkout of POST repository";
   print " at <Ref2> '$post'" if ($DEBUG_LEVEL > 0);
   print ":\n";
+  # Check if SHA1 is already the HEAD of an existing worktree
+  my $found_post_wt = find_worktree_for_sha1($post_sha1);
+  if (defined $found_post_wt)
+  {
+    print("..Using existing worktree: $found_post_wt\n");
+    $post_dir = $found_post_wt;
+  }
+  else
+  {
   # Check existence of worktree
   if ((not -e "$post_dir\/.git") && (not -d "$post_dir\/..\/${self}.git.diff_post\/"))
   {
     print("\n[INFO] Git worktree is not existing ($post_dir)!\n" .
           "..Creating new worktree\n");
 
-    $cmd = "$git worktree add --no-checkout -b diff_post ..//${self}.diff_post";
+    $cmd = "$git worktree add --no-checkout -B diff_post ..//${self}.diff_post";
     print "> $cmd\n" if ($DEBUG_LEVEL > 0);
     # Create worktree
     @cmd_list = `$cmd -- 2>&1`;
@@ -529,6 +570,8 @@ else
   if ((not -e "$post_dir\/.git") && (not -d "$post_dir\/..\/${self}.git.diff_post\/"))
   {
     print @cmd_list if ($DEBUG_LEVEL == 0);
+    print("[ERROR] Failed to create post worktree at: $post_dir\n");
+    print("[ERROR] Expected .git at: $post_dir/.git\n");
     exit(1);
   }
 
@@ -544,6 +587,7 @@ else
   @cmd_list = `$cmd -- | tee 2>&1`;
   print @cmd_list;
   print "\n";
+  } # end else (no existing worktree found for post)
 }
 
 #
